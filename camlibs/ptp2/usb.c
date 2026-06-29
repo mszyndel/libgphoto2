@@ -100,6 +100,33 @@ retry:
 }
 
 uint16_t
+ptp_usb_sendvendorbulk (PTPParams* params, const unsigned char *data, unsigned int size, PTPContainer *ptp)
+{
+	int			res;
+	Camera			*camera = ((PTPData *)params->data)->camera;
+
+	if (!data || size < 12)
+		return PTP_ERROR_BADPARAM;
+
+	ptp->Code = dtoh16a(data + 6);
+	ptp->Transaction_ID = dtoh32a(data + 8);
+	ptp->SessionID = params->session_id;
+
+	GP_LOG_D ("Sending vendor bulk PTP_OC 0x%0x (%s), %u bytes...",
+		ptp->Code, ptp_get_opcode_name(params, ptp->Code), size);
+
+	res = gp_port_write (camera->port, (char*)data, size);
+	if (res != (int)size) {
+		if (res < 0)
+			GP_LOG_E ("vendor bulk write failed: %s (%d)", gp_port_result_as_string(res), res);
+		else
+			GP_LOG_E ("vendor bulk write failed: wrote only %d of %u bytes", res, size);
+		return translate_gp_result_to_ptp(res);
+	}
+	return PTP_RC_OK;
+}
+
+uint16_t
 ptp_usb_senddata (PTPParams* params, PTPContainer* ptp,
 		  uint64_t size, PTPDataHandler *handler
 ) {

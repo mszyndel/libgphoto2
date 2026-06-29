@@ -819,6 +819,12 @@ typedef struct _PTPIPHeader PTPIPHeader;
 #define PTP_OC_OLYMPUS_OMD_ChangedProperties		0x9486
 #define PTP_OC_OLYMPUS_OMD_MFDrive			0x9487
 #define PTP_OC_OLYMPUS_OMD_SetProperties		0x9489 /* Sends to the device a PTP list of all 16 bit device properties , count 32bit, then 16bit vals */
+#define PTP_OC_OLYMPUS_OMD_PollProperties		0x948a
+#define PTP_OC_OLYMPUS_OMD_SetPropertiesLv		0x948b
+#define PTP_OC_OLYMPUS_OMD_BatchSetProperties		0x0400
+#define PTP_OC_OLYMPUS_OMD_GetAfTargetFrames		0x94c4
+#define PTP_OC_OLYMPUS_OMD_Unknown_94dc			0x94dc
+#define PTP_OC_OLYMPUS_OMD_GetLocalObject		0x94d9
 /* 948C: Record Video? */
 /* 9482: Set One Touch WB Gain */
 /* 9483: Set / Start Magnifying Live View Point */
@@ -4318,6 +4324,8 @@ struct _PTPParams {
 
 	/* PTP: Olympus specifics */
 	uint16_t		olympus_camera_control_mode;
+	int			olympus_omd_registered;
+	int			olympus_omd_post_connected;
 
 	/* PTP: Wifi profiles */
 	uint8_t 	wifi_profiles_version;
@@ -4354,6 +4362,7 @@ typedef void (*PTPEventCbFn)(PTPParams *params, uint16_t code, PTPContainer *eve
 
 /* last, but not least - ptp functions */
 uint16_t ptp_usb_sendreq	(PTPParams* params, PTPContainer* req, int dataphase);
+uint16_t ptp_usb_sendvendorbulk (PTPParams* params, const unsigned char *data, unsigned int size, PTPContainer *ptp);
 uint16_t ptp_usb_senddata	(PTPParams* params, PTPContainer* ptp,
 				 uint64_t size, PTPDataHandler *handler);
 uint16_t ptp_usb_getresp	(PTPParams* params, PTPContainer* resp);
@@ -5430,7 +5439,14 @@ uint16_t ptp_olympus_omd_bulbstart (PTPParams* params);
 uint16_t ptp_olympus_omd_bulbend (PTPParams* params);
 uint16_t ptp_olympus_init_pc_mode (PTPParams* params);
 uint16_t ptp_olympus_exit_pc_mode (PTPParams* params);
+uint16_t ptp_olympus_omd_enable_liveview (PTPParams* params);
+uint16_t ptp_olympus_omd_disable_liveview (PTPParams* params);
+uint16_t ptp_olympus_omd_trigger (PTPParams* params);
+uint16_t ptp_olympus_omd_half_press (PTPParams* params, int down);
+uint16_t ptp_olympus_omd_init (PTPParams* params);
+uint16_t ptp_olympus_omd_post_connect (PTPParams* params);
 uint16_t ptp_olympus_sdram_image (PTPParams* params, unsigned char **data, unsigned int *size);
+uint16_t ptp_olympus_omd_get_local_object (PTPParams* params, uint32_t handle, unsigned char **data, unsigned int *size);
 
 
 

@@ -43,6 +43,8 @@
 
 #include "libgphoto2/i18n.h"
 #include "libgphoto2_port/compiletime-assert.h"
+#include "ptp-private.h"
+#include "olympus-omd-init-data.h"
 
 #define CHECK_PTP_RC(RESULT) do { uint16_t r = (RESULT); if (r != PTP_RC_OK) return r; } while(0)
 
@@ -1294,54 +1296,314 @@ ptp_sigma_fp_clearimagedbsingle (PTPParams* params, uint32_t id)
 	return ptp_transaction(params, &ptp, PTP_DP_SENDDATA, sizeof(data), (unsigned char**)&data, 0);
 }
 
+static uint16_t
+ptp_olympus_omd_send_proplist (PTPParams *params, uint16_t opcode,
+		const uint16_t *props, unsigned int nprops)
+{
+	PTPContainer	ptp;
+	unsigned char	*data = NULL;
+	unsigned int	size, i;
+	uint16_t	ret;
+
+	if (!nprops)
+		return PTP_RC_OK;
+
+	size = 4 + nprops * 2;
+	data = malloc(size);
+	if (!data)
+		return PTP_ERROR_IO;
+	htod32a(data, nprops);
+	for (i = 0; i < nprops; i++)
+		htod16a(data + 4 + i * 2, props[i]);
+
+	PTP_CNT_INIT(ptp, opcode);
+	ret = ptp_transaction(params, &ptp, PTP_DP_SENDDATA, size, &data, NULL);
+	free(data);
+	return ret;
+}
+
+static uint16_t
+ptp_olympus_omd_changed_properties (PTPParams *params)
+{
+	PTPContainer	ptp;
+	unsigned char	*data = NULL;
+	unsigned int	size = 0;
+
+	PTP_CNT_INIT(ptp, PTP_OC_OLYMPUS_OMD_ChangedProperties);
+	CHECK_PTP_RC(ptp_transaction(params, &ptp, PTP_DP_GETDATA, 0, &data, &size));
+	free(data);
+	return PTP_RC_OK;
+}
+
+static uint16_t
+ptp_olympus_omd_poll_properties (PTPParams *params)
+{
+	PTPContainer	ptp;
+	unsigned char	*data = NULL;
+	unsigned int	size = 0;
+
+	PTP_CNT_INIT(ptp, PTP_OC_OLYMPUS_OMD_PollProperties);
+	CHECK_PTP_RC(ptp_transaction(params, &ptp, PTP_DP_GETDATA, 0, &data, &size));
+	free(data);
+	return PTP_RC_OK;
+}
+
+static uint16_t
+ptp_olympus_omd_batch_set_properties (PTPParams *params)
+{
+	PTPContainer	ptp;
+	unsigned char	buf[OLYMPUS_OMD_POST_CONNECT_BULK_LEN];
+	uint16_t	ret;
+
+	memcpy(buf, olympus_omd_post_connect_bulk, sizeof(buf));
+	ptp.Transaction_ID = params->transaction_id++;
+	htod32a(buf + 8, ptp.Transaction_ID);
+	PTP_CNT_INIT(ptp, PTP_OC_OLYMPUS_OMD_BatchSetProperties);
+
+	ret = ptp_usb_sendvendorbulk(params, buf, sizeof(buf), &ptp);
+	if (ret != PTP_RC_OK)
+		return ret;
+
+	/* OM Capture sends 0x0400 and continues within ~8 ms (no response wait). */
+	usleep(10000);
+	return PTP_RC_OK;
+}
+
+static uint16_t
+ptp_olympus_omd_get_af_target_frames (PTPParams *params)
+{
+	PTPContainer	ptp;
+	unsigned char	*data = NULL;
+	unsigned int	size = 0;
+	uint16_t	ret;
+
+	PTP_CNT_INIT(ptp, PTP_OC_OLYMPUS_OMD_GetAfTargetFrames);
+	ret = ptp_transaction(params, &ptp, PTP_DP_GETDATA, 0, &data, &size);
+	free(data);
+	return ret;
+}
+
+static uint16_t
+ptp_olympus_omd_unknown_94dc (PTPParams *params)
+{
+	PTPContainer	ptp;
+	unsigned char	*data = NULL;
+	unsigned int	size = 0;
+	uint16_t	ret;
+
+	PTP_CNT_INIT(ptp, PTP_OC_OLYMPUS_OMD_Unknown_94dc);
+	ret = ptp_transaction(params, &ptp, PTP_DP_GETDATA, 0, &data, &size);
+	free(data);
+	return ret;
+}
+
+uint16_t
+ptp_olympus_omd_get_local_object (PTPParams* params, uint32_t handle,
+		unsigned char **data, unsigned int *size)
+{
+	PTPContainer	ptp;
+
+	PTP_CNT_INIT(ptp, PTP_OC_OLYMPUS_OMD_GetLocalObject, handle);
+	return ptp_transaction(params, &ptp, PTP_DP_GETDATA, 0, data, size);
+}
+
+uint16_t
+ptp_olympus_omd_half_press (PTPParams* params, int down)
+{
+	PTPContainer	ptp;
+
+	PTP_CNT_INIT(ptp, PTP_OC_OLYMPUS_OMD_Capture, down ? 0x1 : 0x5);
+	return ptp_transaction(params, &ptp, PTP_DP_NODATA, 0, NULL, NULL);
+}
+
+static uint16_t
+ptp_olympus_omd_register_properties (PTPParams *params)
+{
+	uint16_t	ret;
+
+	ptp_debug(params, "PTP: (Olympus Init) registering monitored properties (9489/948b)...");
+
+	ret = ptp_olympus_omd_send_proplist(params, PTP_OC_OLYMPUS_OMD_SetProperties,
+			olympus_omd_props_startup, OLYMPUS_OMD_PROPS_STARTUP_LEN);
+	if (ret != PTP_RC_OK)
+		return ret;
+
+	(void) ptp_olympus_omd_changed_properties(params);
+
+	ret = ptp_olympus_omd_send_proplist(params, PTP_OC_OLYMPUS_OMD_SetPropertiesLv,
+			olympus_omd_props_lv_startup, OLYMPUS_OMD_PROPS_LV_STARTUP_LEN);
+	if (ret != PTP_RC_OK)
+		return ret;
+
+	(void) ptp_olympus_omd_poll_properties(params);
+	return PTP_RC_OK;
+}
+
+uint16_t
+ptp_olympus_omd_post_connect (PTPParams *params)
+{
+	uint16_t	ret;
+	PTPPropValue	propval;
+
+	if (params->olympus_omd_post_connected)
+		return PTP_RC_OK;
+
+	ptp_debug(params, "PTP: (Olympus Init) post-connect handshake...");
+
+	(void) ptp_olympus_omd_changed_properties(params);
+
+	ret = ptp_olympus_omd_batch_set_properties(params);
+	if (ret != PTP_RC_OK)
+		ptp_debug(params, "PTP: (Olympus Init) 0x0400 batch send failed with 0x%04x", ret);
+
+	ret = ptp_olympus_omd_send_proplist(params, PTP_OC_OLYMPUS_OMD_SetProperties,
+			olympus_omd_props_tether, OLYMPUS_OMD_PROPS_TETHER_LEN);
+	if (ret != PTP_RC_OK)
+		ptp_debug(params, "PTP: (Olympus Init) tether 9489 failed with 0x%04x", ret);
+
+	ret = ptp_olympus_omd_send_proplist(params, PTP_OC_OLYMPUS_OMD_SetPropertiesLv,
+			olympus_omd_props_lv_tether, OLYMPUS_OMD_PROPS_LV_TETHER_LEN);
+	if (ret != PTP_RC_OK)
+		ptp_debug(params, "PTP: (Olympus Init) tether 948b failed with 0x%04x", ret);
+
+	(void) ptp_olympus_omd_get_af_target_frames(params);
+	(void) ptp_olympus_omd_unknown_94dc(params);
+
+	ret = ptp_getdevicepropvalue(params, 0xD176, &propval, PTP_DTC_UINT32);
+	if (ret != PTP_RC_OK)
+		ptp_debug(params, "PTP: (Olympus Init) GetDevicePropValue 0xD176 failed with 0x%04x", ret);
+
+	params->olympus_omd_post_connected = 1;
+	return PTP_RC_OK;
+}
+
+uint16_t
+ptp_olympus_omd_init (PTPParams *params)
+{
+	uint16_t	ret;
+
+	if (params->olympus_omd_registered)
+		return PTP_RC_OK;
+
+	ret = ptp_olympus_omd_register_properties(params);
+	if (ret == PTP_RC_OK)
+		params->olympus_omd_registered = 1;
+	return ret;
+}
+
 uint16_t
 ptp_olympus_init_pc_mode (PTPParams* params)
 {
-	uint16_t		ret;
-	PTPPropValue	propval;
+	uint16_t		ret = PTP_RC_OK;
+	PTPPropValue		propval;
 	PTPContainer		event;
 	int			i;
+	int			switched = 0;
 
 	ptp_debug (params,"PTP: (Olympus Init) switching to PC mode...");
 
 	params->olympus_camera_control_mode = 2;
 	ret = ptp_getdevicepropvalue (params, PTP_DPC_OLYMPUS_CameraControlMode, &propval, PTP_DTC_UINT16);
-	if (ret == PTP_RC_OK)
+	if (ret == PTP_RC_OK) {
 		params->olympus_camera_control_mode = propval.u16;
+		if (propval.u16 == 1) {
+			ptp_debug (params, "PTP: (Olympus Init) already in PC mode (0xD052=1)");
+			(void) ptp_olympus_omd_post_connect(params);
+			return PTP_RC_OK;
+		}
+	}
+
+	propval.u16 = 2;
+	ret = ptp_setdevicepropvalue (params, PTP_DPC_OLYMPUS_CaptureTarget, &propval, PTP_DTC_UINT16);
+	if (ret != PTP_RC_OK)
+		ptp_debug (params, "PTP: (Olympus Init) CaptureTarget 0xD0DC failed with 0x%04x", ret);
 
 	propval.u16 = 1;
 	ret = ptp_setdevicepropvalue (params, PTP_DPC_OLYMPUS_CameraControlMode, &propval, PTP_DTC_UINT16);
-	usleep(100000);
+	if (ret != PTP_RC_OK) {
+		ptp_debug (params, "PTP: (Olympus Init) PC mode property 0xD052 failed with 0x%04x", ret);
+		return ret;
+	}
+	switched = 1;
 
-	for(i = 0; i < 2; i++) {
-		ptp_debug (params,"PTP: (Olympus Init) checking events...");
-		/* Just busy loop until the camera is ready again. */
+	/* The camera can take several seconds to finish the mode switch. */
+	for (i = 0; i < 80; i++) {
 		ptp_check_event (params);
-		if (ptp_get_one_event(params, &event)) break;
-		usleep(100000);
+		if (ptp_get_one_event(params, &event))
+			break;
+		usleep (50000);
 	}
 
-/*
- * 9489 code: sends a list of PTP device properties supported apparently? on E-M1.
- * F4 00 00 00	count
-02 D0 03 D0 04 D0 05 D0 06 D0 07 D0 08 D0 09 D0 0C D0 0D D0 0E D0 0F D0 10 D0 11 D0 13 D0 14 D0 18 D0 1A D0 1B D0 1C D0 1D D0 1E D0 1F D0 20 D0 21 D0 22 D0 23 D0 24 D0 25 D0 26 D0 27 D0 28 D0 29 D0 2A D0 2B D0 2C D0 2D D0 2E D0 2F D0 30 D0 31 D0 32 D0 33 D0 34 D0 35 D0 36 D0 37 D0 38 D0 39 D0 3A D0 3B D0 3C D0 3D D0 3E D0 3F D0 40 D0 41 D0 42 D0 43 D0 44 D0 45 D0 46 D0 47 D0 48 D0 49 D0 4A D0 4B D0 4C D0 4D D0 4E D0 4F D0 50 D0 51 D0 52 D0 58 D0 59 D0 5F D0 60 D0 61 D0 62 D0 64 D0 65 D0 66 D0 68 D0 69 D0 70 D0 73 D0 67 D0 5A D0 5B D0 63 D0 6A D0 6B D0 6C D0 71 D0 72 D0 7A D0 7B D0 7C D0 7D D0 7F D0 80 D0 81 D0 82 D0 86 D0 87 D0 8B D0 8C D0 8E D0 8F D0 97 D0 9F D0 C4 D0 C5 D0 A2 D0 A3 D0 A4 D0 A6 D0 A7 D0 A8 D0 A9 D0 AA D0 AB D0 AC D0 AD D0 AE D0 B2 D0 B3 D0 B4 D0 B5 D0 B6 D0 B7 D0 B8 D0 B9 D0 BA D0 BC D0 BD D0 BE D0 BF D0 C0 D0 C6 D0 C7 D0 C8 D0 C9 D0 CB D0 CC D0 CD D0 CE D0 CF D0 D0 D0 D1 D0 D2 D0 D3 D0 D4 D0 D5 D0 D6 D0 D7 D0 D8 D0 D9 D0 DA D0 DB D0 DC D0 DD D0 DE D0 E2 D0 E3 D0 E4 D0 E5 D0 E6 D0 E7 D0 E8 D0 E9 D0 EA D0 EC D0 EF D0 F0 D0 F1 D0 F2 D0 F3 D0 F4 D0 F5 D0 F6 D0 F7 D0 F8 D0 F9 D0 FA D0 FB D0 FC D0 FD D0 FE D0 FF D0 00 D1 01 D1 02 D1 03 D1 04 D1 05 D1 06 D1 07 D1 08 D1 09 D1 0A D1 0B D1 0C D1 0D D1 0E D1 0F D1 10 D1 11 D1 12 D1 13 D1 14 D1 15 D1 16 D1 17 D1 18 D1 19 D1 1A D1 1B D1 1C D1 1D D1 1E D1 1F D1 20 D1 51 D1 52 D1 5A D1 24 D1 25 D1 26 D1 27 D1 28 D1 2D D1 2E D1 2F D1 30 D1 31 D1 34 D1 35 D1 36 D1 37 D1 38 D1 39 D1 3A D1
- *
- * 9486: queries something. gets 00 00 00 00 ... or list of devicepropdesc in standard ptp propdesc format.
- * could be some form of "properties changed" query perhaps? (32bit count in front)
- * might only monitor/return properties set by 9489?
- *
- * 948a: seems also be some kind of polling function, returns 32bit 0 if nothing is there. similar to above?
- *       returns properties sent by 94b8.
- *
- * 948b: also sends a list of ptp devprops:
- * 11 00 00 00 53 D0 54 D0 55 D0 56 D0 57 D0 6D D0 5C D0 5D D0 5E D0 74 D0 75 D0 83 D0 84 D0 85 D0 ED D0 79 D0 E1 D0
- * Events: c008: 21 D1 00 00 0F 00 00 00 01 00 00 00
- */
-	//ptp_debug (params,"PTP: (Olympus Init) getting response...");
-	//gp_port_set_timeout (camera->port, timeout);
-	//ret=ptp_transaction(params, &ptp, PTP_DP_RESPONSEONLY, size, &data, NULL);
-	//free(data);
+	if (switched)
+		(void) ptp_olympus_omd_post_connect(params);
+	return PTP_RC_OK;
+}
+
+#define PTP_OLYMPUS_LIVEVIEW_MODE 67109632u /* 0x04000300 */
+
+uint16_t
+ptp_olympus_omd_enable_liveview (PTPParams* params)
+{
+	uint16_t		ret;
+	PTPPropValue		value;
+	PTPContainer		event;
+	int			i;
+
+	if (params->inliveview)
+		return PTP_RC_OK;
+
+	ret = ptp_getdevicepropvalue (params, PTP_DPC_OLYMPUS_LiveViewModeOM, &value, PTP_DTC_UINT32);
+	if (ret == PTP_RC_OK && value.u32 == PTP_OLYMPUS_LIVEVIEW_MODE) {
+		params->inliveview = 1;
+		return PTP_RC_OK;
+	}
+
+	value.u32 = PTP_OLYMPUS_LIVEVIEW_MODE;
+	ret = ptp_setdevicepropvalue (params, PTP_DPC_OLYMPUS_LiveViewModeOM, &value, PTP_DTC_UINT32);
+	if (ret != PTP_RC_OK)
+		return ret;
+
+	usleep (50000);
+	for (i = 0; i < 3; i++) {
+		ptp_check_event (params);
+		if (ptp_get_one_event (params, &event))
+			break;
+		usleep (50000);
+	}
+	params->inliveview = 1;
+	return PTP_RC_OK;
+}
+
+uint16_t
+ptp_olympus_omd_disable_liveview (PTPParams* params)
+{
+	uint16_t		ret;
+	PTPPropValue		value;
+
+	ret = ptp_getdevicepropvalue (params, PTP_DPC_OLYMPUS_LiveViewModeOM, &value, PTP_DTC_UINT32);
+	if (ret == PTP_RC_OK && value.u32 == 0) {
+		params->inliveview = 0;
+		return PTP_RC_OK;
+	}
+
+	value.u32 = 0;
+	ret = ptp_setdevicepropvalue (params, PTP_DPC_OLYMPUS_LiveViewModeOM, &value, PTP_DTC_UINT32);
+	params->inliveview = 0;
+	if (ret == PTP_RC_OK)
+		usleep (20000);
 	return ret;
+}
+
+uint16_t
+ptp_olympus_omd_trigger (PTPParams* params)
+{
+	PTPContainer	ptp;
+
+	PTP_CNT_INIT(ptp, PTP_OC_OLYMPUS_OMD_Capture, 0x3);
+	CHECK_PTP_RC(ptp_transaction(params, &ptp, PTP_DP_NODATA, 0, NULL, NULL));
+	PTP_CNT_INIT(ptp, PTP_OC_OLYMPUS_OMD_Capture, 0x6);
+	CHECK_PTP_RC(ptp_transaction(params, &ptp, PTP_DP_NODATA, 0, NULL, NULL));
+	return PTP_RC_OK;
 }
 
 uint16_t
@@ -1358,14 +1620,16 @@ ptp_olympus_exit_pc_mode (PTPParams* params)
 	if (!propval.u16)
 		propval.u16 = 2;
 
+	params->olympus_omd_post_connected = 0;
+
 	ret = ptp_setdevicepropvalue (params, PTP_DPC_OLYMPUS_CameraControlMode, &propval, PTP_DTC_UINT16);
-	usleep(100000);
+	usleep(50000);
 
 	for (i = 0; i < 2; i++) {
 		ptp_check_event (params);
 		if (ptp_get_one_event(params, &event))
 			break;
-		usleep(100000);
+		usleep (50000);
 	}
 
 	return ret;

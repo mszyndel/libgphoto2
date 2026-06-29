@@ -1,0 +1,191 @@
+OM System OM-1 Mark II — OM Capture USB-PTP timeline
+Source: om1.pcapng (USBPcap, Windows)
+Filtered: excludes 0x948a/0x9486/0x9484 background polling
+
+   Time(s)   Frame  Opcode                        Notes
+--------------------------------------------------------------------------------
+
+--- APP STARTUP — property registration ---
+    19.222       7  GetDeviceInfo
+    19.224      13  GetDevicePropDesc              prop=0xd17b
+    19.225      19  GetDevicePropDesc              prop=0xd077
+    19.227      25  GetDevicePropDesc              prop=0xd179
+    19.228      31  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    19.230      37  GetDevicePropDesc              prop=0xd078
+    19.231      43  OMD_SetProperties
+    19.263      55  OMD_SetPropertiesLv
+    19.290      73  GetDevicePropDesc
+    19.292      79  GetDevicePropDesc
+    19.293      85  GetDevicePropDesc              prop=0xd179
+    19.298      97  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    19.301     103  GetDevicePropDesc
+    19.319     109  GetDevicePropDesc              prop=0xd077
+    19.335     115  GetDevicePropDesc              prop=0xd0dc (CaptureTarget)
+
+--- TETHER CONNECT — D0DC + D052 PC mode ---
+    24.454     457  GetDevicePropDesc              prop=0xd0dc (CaptureTarget)
+    24.457     463  SetDevicePropValue             prop=0xd0dc (CaptureTarget) value=2
+    24.463     469  GetDevicePropDesc              prop=0xd0dc (CaptureTarget)
+    24.469     481  SetDevicePropValue             prop=0xd0dc (CaptureTarget) value=2
+    24.471     487  GetDevicePropDesc              prop=0xd179
+    24.473     493  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    24.489     499  GetDevicePropDesc              prop=0xd179
+    24.491     505  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    24.493     511  GetDevicePropDesc              prop=0xd179
+    24.495     517  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    24.509     523  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    24.511     529  SetDevicePropValue             prop=0xd052 (CameraControlMode) value=1
+
+--- POST-CONNECT — batch set + re-register ---
+    27.884     537  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    27.886     543  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    27.911     558  OMD_BatchSetProperties         post-connect batch property set
+    27.919     567  OMD_SetProperties
+    27.932     573  OMD_SetPropertiesLv
+    27.945     579  GetDevicePropDesc
+    27.947     585  GetDevicePropDesc              prop=0xd179
+    27.951     591  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    27.953     597  GetDevicePropDesc
+    27.955     603  GetDevicePropDesc
+    27.957     609  GetDevicePropDesc
+    27.959     615  GetDevicePropDesc              prop=0xd179
+    27.963     621  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    27.966     627  GetDevicePropDesc
+    27.968     633  OMD_GetAfTargetFrames
+    27.977     643  GetDevicePropDesc              prop=0xd179
+    27.981     649  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    27.985     655  OMD_Unknown_94dc
+    28.094     673  GetDevicePropValue             prop=0xd176 (Unknown_D176)
+
+--- LIVEVIEW ON ---
+    30.743     855  SetDevicePropValue             prop=0xd06d (LiveViewModeOM) value=0x04000300
+    30.769     865  GetDevicePropDesc              prop=0xd179
+    30.776     871  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    30.783     877  GetDevicePropDesc
+    30.789     883  GetDevicePropDesc
+    30.801     889  GetDevicePropDesc
+    30.811     901  GetDevicePropDesc
+    30.890     935  GetDevicePropDesc
+    30.893     941  GetDevicePropDesc              prop=0xd179
+    30.897     947  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    30.899     953  GetDevicePropDesc
+    30.902     965  GetDevicePropDesc
+    30.930     977  GetDevicePropDesc
+    30.934     983  GetDevicePropDesc
+
+--- LIVEVIEW OFF ---
+    32.848    1785  SetDevicePropValue             prop=0xd06d (LiveViewModeOM) value=0
+    32.963    1799  GetDevicePropDesc
+    32.972    1805  GetDevicePropDesc              prop=0xd179
+    32.977    1811  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    32.979    1817  GetDevicePropDesc
+    32.982    1823  GetDevicePropDesc
+    33.011    1829  GetDevicePropDesc
+    33.014    1835  GetDevicePropDesc
+
+--- EXPOSURE COMPENSATION ---
+    38.938    2237  GetDevicePropDesc              prop=0xd179
+    38.943    2243  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    38.951    2249  GetDevicePropDesc              prop=0xd179
+    38.956    2255  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    38.959    2261  SetDevicePropValue             prop=0xd008 (ExposureCompensation) value=-300
+    39.410    2299  GetDevicePropDesc              prop=0xd179
+    39.414    2305  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    39.418    2311  GetDevicePropDesc              prop=0xd179
+    39.423    2317  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    39.427    2323  SetDevicePropValue             prop=0xd008 (ExposureCompensation) value=0
+
+--- SHUTTER / HALF-PRESS / CAPTURE ---
+    84.226    5271  GetDevicePropDesc              prop=0xd179
+    84.232    5277  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    84.235    5283  OMD_Capture                    param=1 (half-press-down)
+    85.460    5371  GetDevicePropDesc              prop=0xd179
+    85.466    5377  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    85.470    5383  OMD_Capture                    param=5 (half-press-up)
+    85.499    5399  GetDevicePropDesc              prop=0xd179
+    85.507    5405  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    86.327    5465  GetDevicePropDesc              prop=0xd179
+    86.339    5477  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    86.351    5489  OMD_Capture                    param=3 (shutter-down)
+    86.489    5503  GetDevicePropDesc              prop=0xd179
+    86.493    5509  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    86.498    5515  OMD_Capture                    param=6 (shutter-up)
+    87.018    5567  GetDevicePropDesc              prop=0xd179
+    87.025    5573  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    87.166    5593  OMD_GetImage
+    87.581    5627  GetDevicePropDesc              prop=0xd179
+    87.589    5633  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    87.600    5645  OMD_Capture                    param=3 (shutter-down)
+    87.777    5667  GetDevicePropDesc              prop=0xd179
+    87.783    5673  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    87.785    5679  OMD_Capture                    param=6 (shutter-up)
+    88.018    5703  GetDevicePropDesc              prop=0xd179
+    88.030    5711  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    88.062    5723  OMD_GetImage
+    88.486    5765  OMD_GetLocalObject             handle=0x0000039a
+    88.575    5771  GetDevicePropDesc              prop=0xd179
+    88.589    5783  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    88.593    5789  OMD_Capture                    param=3 (shutter-down)
+    88.638    5799  OMD_GetLocalObject             handle=0x0000039b
+    88.934    5837  GetDevicePropDesc              prop=0xd179
+    88.944    5843  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    89.040    5861  GetDevicePropDesc              prop=0xd179
+    89.045    5867  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    89.051    5873  OMD_Capture                    param=6 (shutter-up)
+    89.190    5887  OMD_GetLocalObject             handle=0x0000039c
+    89.277    5905  GetDevicePropDesc              prop=0xd179
+    89.286    5911  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    89.325    5925  OMD_GetImage
+    89.349    5943  OMD_GetLocalObject             handle=0x0000039d
+    89.367    5949  GetDevicePropDesc              prop=0xd179
+    89.375    5955  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    89.397    5961  OMD_Capture                    param=3 (shutter-down)
+    89.730    6001  GetDevicePropDesc              prop=0xd179
+    89.737    6007  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    89.978    6033  OMD_GetLocalObject             handle=0x0000039e
+    90.135    6059  OMD_GetLocalObject             handle=0x0000039f
+    90.314    6073  OMD_GetLocalObject             handle=0x000003a0
+    90.514    6093  OMD_GetLocalObject             handle=0x000003a1
+    90.693    6119  OMD_GetLocalObject             handle=0x000003a2
+    90.721    6125  GetDevicePropDesc              prop=0xd179
+    90.727    6131  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    90.731    6137  OMD_Capture                    param=6 (shutter-up)
+    90.899    6161  GetDevicePropDesc              prop=0xd179
+    90.907    6169  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    90.937    6181  OMD_GetLocalObject             handle=0x000003a3
+    90.986    6195  OMD_GetImage
+    91.106    6213  OMD_GetLocalObject             handle=0x000003a4
+
+--- DISCONNECT ---
+    97.612    6653  GetDevicePropDesc              prop=0xd179
+    97.620    6659  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    97.626    6665  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    97.630    6671  GetDevicePropDesc              prop=0xd179
+    97.636    6677  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    97.639    6683  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    97.643    6689  SetDevicePropValue             prop=0xd052 (CameraControlMode) value=2
+    97.647    6695  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    97.653    6701  OMD_SetProperties
+    97.676    6707  OMD_SetPropertiesLv
+    97.678    6715  GetDevicePropDesc
+    98.040    6723  GetDevicePropDesc              prop=0xd179
+    98.045    6729  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    98.053    6735  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+    98.061    6741  GetDevicePropDesc              prop=0xd052 (CameraControlMode)
+
+--- OPCODE SUMMARY (all commands) ---
+  0x948a OMD_PollProperties             708
+  0x9486 OMD_ChangedProperties          124
+  0x1014 GetDevicePropDesc              108
+  0x9484 GetLiveViewImage               106
+  0x94d9 OMD_GetLocalObject             11
+  0x9481 OMD_Capture                    10
+  0x1016 SetDevicePropValue             8
+  0x9485 OMD_GetImage                   4
+  0x9489 OMD_SetProperties              3
+  0x948b OMD_SetPropertiesLv            3
+  0x1001 GetDeviceInfo                  1
+  0x0400 OMD_BatchSetProperties         1
+  0x94c4 OMD_GetAfTargetFrames          1
+  0x94dc OMD_Unknown_94dc               1
+  0x1015 GetDevicePropValue             1

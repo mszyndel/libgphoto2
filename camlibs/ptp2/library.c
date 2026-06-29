@@ -4036,32 +4036,37 @@ ignoreerror:
 	}
 	case PTP_VENDOR_GP_OLYMPUS_OMD: {
 		unsigned char	*ximage = NULL;
-		PTPPropValue	value;
 		int		tries = 25;
+		int		oldtimeout;
 
-		ret = ptp_getdevicepropvalue (params, PTP_DPC_OLYMPUS_LiveViewModeOM, &value, PTP_DTC_UINT32);
-		if (ret != PTP_RC_OK)
-			value.u32 = 0;
+		SET_CONTEXT_P(params, context);
+		C_PTP_REP (ptp_olympus_omd_enable_liveview (params));
 
-		if (value.u32 != 67109632) {	/* 0x04000300 */
-			value.u32 = 67109632;
-			LOG_ON_PTP_E (ptp_setdevicepropvalue (params, PTP_DPC_OLYMPUS_LiveViewModeOM, &value, PTP_DTC_UINT32));
+		CR (gp_port_get_timeout (camera->port, &oldtimeout));
+		CR (gp_port_set_timeout (camera->port, 1000));
 
-			params->inliveview = 1;
-		}
-
-		for(;;) {
+		for (;;) {
 			tries--;
-			if(tries <= 0) {
-				return ret;
+			if (tries <= 0) {
+				CR (gp_port_set_timeout (camera->port, oldtimeout));
+				SET_CONTEXT_P(params, NULL);
+				return GP_ERROR;
 			}
 			ret = ptp_olympus_liveview_image (params, &ximage, &size);
-			if(ret == PTP_RC_DeviceBusy || size < 1024) {
-				usleep(40000);
+			if (ret == PTP_RC_DeviceBusy || (ret == PTP_RC_OK && size < 1024)) {
+				free (ximage);
+				ximage = NULL;
+				usleep (40000);
 				continue;
-			} else {
-				break;
 			}
+			break;
+		}
+		CR (gp_port_set_timeout (camera->port, oldtimeout));
+
+		if (ret != PTP_RC_OK) {
+			free (ximage);
+			SET_CONTEXT_P(params, NULL);
+			return translate_ptp_result (ret);
 		}
 
 		gp_file_append (file, (char*)ximage, size);
@@ -5629,6 +5634,43 @@ downloadfile:
 }
 
 static int
+olympus_omd_save_jpeg_capture (Camera *camera, CameraFilePath *path,
+		unsigned char *data, unsigned int size, GPContext *context)
+{
+	PTPParams	*params = &camera->pl->params;
+	CameraFile	*file;
+	int		ret;
+
+	if (!data || size < 2)
+		return GP_ERROR;
+	if (data[0] != 0xff || data[1] != 0xd8)
+		return GP_ERROR;
+
+	snprintf (path->name, sizeof (path->name), "CAP%04d.JPG", ++params->capcnt);
+	strcpy (path->folder, "/");
+
+	ret = gp_file_new (&file);
+	if (ret != GP_OK)
+		return ret;
+	gp_file_set_mtime (file, time (NULL));
+	gp_file_set_mime_type (file, GP_MIME_JPEG);
+	ret = gp_file_set_data_and_size (file, (char*)data, size);
+	if (ret != GP_OK) {
+		gp_file_free (file);
+		return ret;
+	}
+	ret = gp_filesystem_append (camera->fs, path->folder, path->name, context);
+	if (ret != GP_OK) {
+		gp_file_free (file);
+		return ret;
+	}
+	ret = gp_filesystem_set_file_noop (camera->fs, path->folder, path->name,
+			GP_FILE_TYPE_NORMAL, file, context);
+	gp_file_unref (file);
+	return ret;
+}
+
+static int
 camera_olympus_omd_capture (Camera *camera, CameraCaptureType type, CameraFilePath *path, GPContext *context)
 {
 	PTPParams	*params = &camera->pl->params;
@@ -5636,13 +5678,16 @@ camera_olympus_omd_capture (Camera *camera, CameraCaptureType type, CameraFilePa
 	uint32_t	newobject = 0;
 	struct timeval	event_start;
 	int		back_off_wait = 0;
-	PTPPropValue	propval;
+	PTPObjectHandles beforehandles = {0}, handles = {0};
+	unsigned int	i;
 
 	// clear out old events
 	//C_PTP_REP (ptp_check_event (params));
 	//while (ptp_get_one_event(params, &event));
 
-	C_PTP_REP (ptp_getdevicepropvalue (params, PTP_DPC_OLYMPUS_CaptureTarget, &propval, PTP_DTC_UINT16));
+	LOG_ON_PTP_E (ptp_olympus_omd_disable_liveview (params));
+	C_PTP (ptp_getobjecthandles (params, PTP_HANDLER_SPECIAL, 0x000000, 0x000000, &beforehandles));
+
 	C_PTP_REP (ptp_olympus_omd_capture(params));
 
 	usleep(100);
@@ -5655,24 +5700,69 @@ camera_olympus_omd_capture (Camera *camera, CameraCaptureType type, CameraFilePa
 			switch (event.Code) {
 			case PTP_EC_Olympus_ObjectAdded:
 			case PTP_EC_Olympus_ObjectAdded_New:	/* seen in newer traces, https://github.com/gphoto/gphoto2/issues/310 */
-			case PTP_EC_Olympus_CaptureComplete:
 			case PTP_EC_ObjectAdded:
 				newobject = event.Param1;
 				goto downloadfile;
+			case PTP_EC_Olympus_CaptureComplete:
+				if (event.Param1 >= 0x10000000) {
+					newobject = event.Param1;
+					goto downloadfile;
+				}
+				break;
 			default:
 				GP_LOG_D ("unexpected unhandled event Code %04x, Param 1 %08x", event.Code, event.Param1);
 				break;
 			}
 		}
-	}  while (waiting_for_timeout (&back_off_wait, event_start, 65000)); /* wait for 0.5 seconds after busy is no longer signaled */
+	}  while (waiting_for_timeout (&back_off_wait, event_start, 35000));
+
+	/* OM Capture fetches SDRAM JPEG via 0x9485 after shutter release. */
+	{
+		unsigned char	*jpeg = NULL;
+		unsigned int	jsize = 0;
+		int		sdram_ret;
+
+		usleep (700000);
+		sdram_ret = ptp_olympus_sdram_image (params, &jpeg, &jsize);
+		if (sdram_ret == PTP_RC_OK && jpeg && jsize > 0) {
+			sdram_ret = olympus_omd_save_jpeg_capture (camera, path, jpeg, jsize, context);
+			free (jpeg);
+			if (sdram_ret == GP_OK) {
+				LOG_ON_PTP_E (ptp_olympus_omd_enable_liveview (params));
+				free_array (&beforehandles);
+				free_array (&handles);
+				return GP_OK;
+			}
+		}
+		free (jpeg);
+	}
+
+	/* Some bodies signal CaptureComplete without an object handle. */
+	C_PTP (ptp_getobjecthandles (params, PTP_HANDLER_SPECIAL, 0x000000, 0x000000, &handles));
+	for_each (uint32_t*, phandle, handles) {
+		for (i = 0; i < beforehandles.len; i++)
+			if (beforehandles.val[i] == *phandle)
+				break;
+		if (i != beforehandles.len) {
+			newobject = *phandle;
+			break;
+		}
+	}
 
 downloadfile:
+	free_array (&beforehandles);
+	free_array (&handles);
 
 	path->name[0]='\0';
 	path->folder[0]='\0';
 
-	if (newobject != 0) /* FIXME: does not handle association adds I think */
-		return add_object_to_fs_and_path (camera, newobject, path, context);
+	if (newobject != 0) {
+		int res;
+
+		res = add_object_to_fs_and_path (camera, newobject, path, context);
+		LOG_ON_PTP_E (ptp_olympus_omd_enable_liveview (params));
+		return res;
+	}
 	return GP_ERROR;
 }
 
@@ -6637,8 +6727,9 @@ camera_trigger_capture (Camera *camera, GPContext *context)
 	if (	(params->deviceinfo.VendorExtensionID == PTP_VENDOR_GP_OLYMPUS_OMD) &&
 		ptp_operation_issupported(params, PTP_OC_OLYMPUS_OMD_Capture)
 	) {
-		C_PTP_REP(ptp_generic_no_data(params, PTP_OC_OLYMPUS_OMD_Capture, 1, 0x3));
-		C_PTP_REP(ptp_generic_no_data(params, PTP_OC_OLYMPUS_OMD_Capture, 1, 0x6));
+		if (params->inliveview)
+			LOG_ON_PTP_E (ptp_olympus_omd_disable_liveview (params));
+		C_PTP_REP (ptp_olympus_omd_trigger (params));
 		return GP_OK;
 	}
 
@@ -10061,9 +10152,17 @@ camera_init (Camera *camera, GPContext *context)
 
 	/* moved down here in case the filesystem needs to first be initialized as the Olympus app does */
 	if (params->deviceinfo.VendorExtensionID == PTP_VENDOR_GP_OLYMPUS_OMD) {
+		uint16_t pc_ret;
 
 		GP_LOG_D ("Initializing Olympus ... ");
-		ptp_olympus_init_pc_mode(params);
+		init_ret = ptp_olympus_omd_init(params);
+		if (init_ret != PTP_RC_OK)
+			GP_LOG_E ("Olympus OMD property registration failed: PTP error 0x%04x", init_ret);
+
+		pc_ret = ptp_olympus_init_pc_mode(params);
+		if (pc_ret != PTP_RC_OK)
+			GP_LOG_E ("Olympus PC control mode (0xD052) failed: PTP error 0x%04x", pc_ret);
+		olympus_omd_report_mtp_usb_mode (context, params, pc_ret != PTP_RC_OK);
 
 		/* try to refetch the storage ids, set before only has 0x00000001 */
 		free_array (&params->storageids);
